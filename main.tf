@@ -226,3 +226,95 @@ resource "aws_lambda_permission" "allow_button_invoke" {
   source_account = "${data.aws_caller_identity.current.account_id}"
   source_arn     = "${aws_iot_topic_rule.aws_button.arn}"
 }
+
+data "archive_file" "notify_lambda" {
+  type        = "zip"
+  source_file = "${path.module}/code/notify.py"
+  output_path = "${path.module}/code/artifacts/notify.zip"
+}
+
+resource "aws_lambda_function" "notify" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  filename         = "${path.module}/code/artifacts/notify.zip"
+  function_name    = "gamebox-ifttt-notify"
+  description      = "Cloudwatch events handler, invokes callback URL on interested events"
+  role             = "${aws_iam_role.lambda_execution_role.arn}"
+  handler          = "notify.handle"
+  source_code_hash = "${data.archive_file.notify_lambda.output_base64sha256}"
+  runtime          = "python3.7"
+
+  environment {
+    variables {
+      webhook_url = "${var.ifttt_webhook_url}"
+    }
+  }
+}
+
+resource "aws_cloudwatch_event_rule" "ec2_events" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  name        = "gamebox-ec2-statechange"
+  description = "Subscribe to EC2 State Change Events"
+
+  event_pattern = <<PATTERN
+{
+  "source": [ "aws.ec2" ],
+  "detail-type": [ "EC2 Instance State-change Notification" ],
+  "detail": {
+    "state": [ "running", "terminated" ]
+  }
+}
+PATTERN
+}
+
+resource "aws_cloudwatch_event_rule" "spot_events" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  name        = "gamebox-spot-termination"
+  description = "Subscribe to EC2 Spot Termination Warning"
+
+  event_pattern = <<PATTERN
+{
+  "source": [ "aws.ec2" ],
+  "detail-type": ["EC2 Spot Instance Interruption Warning" ],
+  "detail": {
+    "instance-action": [ "terminate" ]
+  }
+}
+PATTERN
+}
+
+resource "aws_cloudwatch_event_target" "ec2_events_notify" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  arn  = "${aws_lambda_function.notify.arn}"
+  rule = "${aws_cloudwatch_event_rule.ec2_events.name}"
+}
+
+resource "aws_cloudwatch_event_target" "spot_events_notify" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  arn  = "${aws_lambda_function.notify.arn}"
+  rule = "${aws_cloudwatch_event_rule.spot_events.name}"
+}
+
+resource "aws_lambda_permission" "allow_ec2_events_notify_invoke" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  action         = "lambda:InvokeFunction"
+  function_name  = "${aws_lambda_function.notify.function_name}"
+  principal      = "events.amazonaws.com"
+  source_account = "${data.aws_caller_identity.current.account_id}"
+  source_arn     = "${aws_cloudwatch_event_rule.ec2_events.arn}"
+}
+
+resource "aws_lambda_permission" "allow_spot_events_notify_invoke" {
+  count = "${var.ifttt_webhook_url == "" ? 0 : 1}"
+
+  action         = "lambda:InvokeFunction"
+  function_name  = "${aws_lambda_function.notify.function_name}"
+  principal      = "events.amazonaws.com"
+  source_account = "${data.aws_caller_identity.current.account_id}"
+  source_arn     = "${aws_cloudwatch_event_rule.spot_events.arn}"
+}

@@ -21,3 +21,8 @@ variable "iot_button_gsn" {
   description = "Serial number of the AWS IOT Button. When empty, no triggers are created."
   default     = ""
 }
+
+variable "ifttt_webhook_url" {
+  description = "IFTTT Webhook URL to send instance state change and spot termination notifications to"
+  default     = ""
+}
