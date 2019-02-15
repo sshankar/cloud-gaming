@@ -1,0 +1,40 @@
+{
+  "min_packer_version": "1.1.4",
+  "description": "Image builder for cloud gaming",
+  "variables": {
+    "instance_type": "g3.4xlarge",
+    "aws_region": "us-east-1",
+    "base_ami": "ami-05aab668db7908f32"
+  },
+  "builders": [{
+    "type": "amazon-ebs",
+    "spot_price": "auto",
+    "spot_price_auto_product": "Windows (Amazon VPC)",
+    "instance_type": "{{ user `instance_type` }}",
+    "region": "{{ user `aws_region` }}",
+    "source_ami": "{{ user `base_ami` }}",
+    "ami_name": "gamebox-base-{{ isotime | clean_ami_name }}",
+    "communicator": "winrm",
+    "winrm_username": "Administrator",
+    "user_data_file":"{{template_dir}}/scripts/ec2-userdata.ps1",
+    "associate_public_ip_address": true,
+    "decode_authorization_messages": true,
+    "disable_stop_instance": true,
+    "ebs_optimized": true,
+    "ena_support": true,
+    "tags": {
+      "Service": "gamebox",
+      "SourceAMI": "{{ .SourceAMI }}",
+      "BuildTime": "{{ isotime \"2006-01-02\" }}"
+    }
+  }],
+  "provisioners": [{
+    "type": "powershell",
+    "scripts": ["{{template_dir}}/scripts/setup-system.ps1", "{{template_dir}}/scripts/setup-user-autologin.ps1", "{{template_dir}}/scripts/setup-software.ps1", "{{template_dir}}/scripts/setup-audio.ps1"],
+    "elevated_user": "Administrator",
+    "elevated_password": "{{.WinRMPassword}}"
+  },{
+    "type": "windows-shell",
+    "inline": ["\"c:\\Program Files\\Amazon\\Ec2ConfigService\\ec2config.exe\" -sysprep"]
+  }]
+}
